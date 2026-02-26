@@ -241,6 +241,32 @@ h1 {
   font-weight: 700;
 }
 
+/* ── Loading screen flowers animation ── */
+.loading-flowers {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0 14px;
+  font-size: 1.8rem;
+}
+
+.loading-flower {
+  display: inline-block;
+  animation: flowerBounce 1.4s ease-in-out infinite;
+}
+
+@keyframes flowerBounce {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50% { transform: translateY(-14px); opacity: 1; }
+}
+
+.loading-hint {
+  font-size: 0.85rem;
+  color: #8c6075;
+  font-style: italic;
+  margin: 0;
+}
+
 .ai-heading {
   margin: 12px 0 8px;
   font-size: 1rem;
@@ -437,18 +463,138 @@ h1 {
   box-shadow: 0 8px 24px rgba(137, 98, 117, 0.18);
 }
 
+/* ── Upload group with camera button ── */
+.studio-upload-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 120px;
+}
+
+.studio-upload-group .studio-upload {
+  flex: none;
+  height: 100px;
+}
+
+.studio-camera-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1.5px solid #c9a5b7;
+  background: #fff2f8;
+  color: #6d4a5d;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.studio-camera-btn:hover {
+  background: #f4d8e8;
+  border-color: #a56d87;
+}
+
+/* ── Camera overlay ── */
+.camera-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.6);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.camera-dialog {
+  background: #fff7fb;
+  border-radius: 18px;
+  padding: 28px 24px;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  border: 1px solid #dec5d2;
+}
+
+.camera-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+  color: #6d4a5d;
+}
+
+.camera-dialog p {
+  margin: 0 0 20px;
+  font-size: 0.92rem;
+  color: #5c4450;
+  line-height: 1.5;
+}
+
+.camera-dialog__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ── Camera viewfinder ── */
+.camera-viewfinder {
+  background: #1a1a1a;
+  border-radius: 18px;
+  overflow: hidden;
+  max-width: 600px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.camera-video {
+  width: 100%;
+  display: block;
+  border-radius: 18px 18px 0 0;
+}
+
+.camera-viewfinder__actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 16px;
+  background: #2a2a2a;
+}
+
+.camera-capture-btn {
+  font-size: 1rem !important;
+  padding: 10px 28px !important;
+}
+
 @media (max-width: 600px) {
   .studio-slot__body {
     flex-direction: column;
   }
 
-  .studio-upload {
+  .studio-upload-group {
     flex: none;
+    width: 100%;
+  }
+
+  .studio-upload-group .studio-upload {
     width: 100%;
     height: 140px;
   }
 
   .studio-flower-select {
     width: 100%;
+  }
+
+  .camera-viewfinder {
+    max-width: 100%;
+    border-radius: 12px;
+  }
+
+  .camera-video {
+    border-radius: 12px 12px 0 0;
   }
 }

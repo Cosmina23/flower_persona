@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import random
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -166,50 +167,114 @@ async def generate_quiz():
 
     Each question has exactly 6 options. Option index maps to a flower:
       0=Lalea, 1=Bujor, 2=Trandafir, 3=Margareta, 4=Floarea-soarelui, 5=Floare albastră
+
+    Uses randomized theme categories and creative angles each time to ensure
+    every quiz session feels completely different.
     """
     client = get_azure_openai_client()
     if client is None:
         return {"questions": FALLBACK_QUESTIONS, "source": "fallback"}
 
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.2-chat")
+
+    # ── Randomized topic pools for maximum variety ──
+    THEME_POOLS = [
+        # Daily life
+        ["dimineața ta ideală", "rutina de seară", "un ritual zilnic preferat",
+         "prima oră de la trezire", "cum arată pauza ta de prânz"],
+        # Relationships
+        ["cum arăți afecțiune", "ce faci pentru o prietenă tristă",
+         "un cadou de suflet", "cum construiești o prietenie nouă",
+         "cum reacționezi la un compliment neașteptat"],
+        # Creativity / hobbies
+        ["un weekend liber", "hobby-ul tău secret", "o activitate care te relaxează",
+         "un proiect creativ de vis", "cum petreci o seară de ploaie"],
+        # Challenges
+        ["cum gestionezi un conflict", "o decizie dificilă",
+         "o zi proastă la muncă", "un eșec pe care l-ai depășit",
+         "când cineva te dezamăgește"],
+        # Atmosphere / aesthetics
+        ["camera ta ideală", "o destinație de vacanță",
+         "cel mai frumos anotimp", "un parfum care te reprezintă",
+         "culorile care te definesc"],
+        # Values / inner world
+        ["ce calitate prețuiești la tine", "o lecție de viață importantă",
+         "ce vrei să transmiți lumii", "cum arată succesul pentru tine",
+         "ce înseamnă curajul în viața ta"],
+        # Social / fun
+        ["rolul tău într-un grup", "cum organizezi o petrecere",
+         "tipul de conversație care te energizează",
+         "cum reacționezi la o surpriză", "primul lucru pe care-l spui la o întâlnire nouă"],
+        # Imagination
+        ["dacă ai fi un element al naturii", "un supraputere pe care ai alege-o",
+         "un personaj din carte care te reprezintă",
+         "o epocă istorică în care ai fi vrut să trăiești",
+         "dacă ai putea avea o conversație cu oricine"],
+    ]
+
+    # Pick 7 random categories (can repeat if needed) and one topic from each
+    chosen_categories = random.sample(THEME_POOLS, k=min(7, len(THEME_POOLS)))
+    while len(chosen_categories) < 7:
+        chosen_categories.append(random.choice(THEME_POOLS))
+    chosen_topics = [random.choice(cat) for cat in chosen_categories]
+    random.shuffle(chosen_topics)
+
+    topics_line = "\n".join(f"  {i+1}. {t}" for i, t in enumerate(chosen_topics))
+
+    # Pick a random creative angle
+    angles = [
+        "Formulează întrebările ca scenarii imaginare (ex: 'Dacă...', 'Imaginează-ți că...')",
+        "Formulează întrebările ca alegeri practice de zi cu zi",
+        "Formulează întrebările ca preferințe estetice și senzoriale",
+        "Formulează întrebările ca reacții spontane la situații neașteptate",
+        "Formulează întrebările ca metafore ușoare din natură sau artă",
+        "Formulează întrebările ca mini-dileme amuzante și sincere",
+    ]
+    angle = random.choice(angles)
 
     system_prompt = (
-        "Ești un generator de quiz-uri de personalitate pentru femei, în limba română. "
-        "Generezi întrebări creative, variate și captivante. "
-        "Răspunsurile sunt scurte (max 10 cuvinte), clare, fără jargon."
+        "Ești un creator de quiz-uri de personalitate unice, proaspete și surprinzătoare, "
+        "în limba română, pentru femei. Fiecare quiz pe care-l creezi trebuie să fie COMPLET "
+        "DIFERIT de orice ai generat înainte. Fii creativ, neașteptat, dar accesibil. "
+        "Răspunsurile sunt scurte (max 10 cuvinte), clare, fără jargon sau clișee."
     )
 
-    user_prompt = """Generează EXACT 7 întrebări pentru un quiz de personalitate destinat femeilor.
+    user_prompt = f"""Generează EXACT 7 întrebări UNICE pentru un quiz de personalitate.
+
+IMPORTANT: Fiecare întrebare trebuie să fie pe un SUBIECT DIFERIT. Iată temele obligatorii:
+{topics_line}
+
+Stil creativ obligatoriu: {angle}
 
 Fiecare întrebare are EXACT 6 variante de răspuns. Ordinea variantelor contează:
-- Varianta 1: potrivită pentru personalitate de tip Lalea (eleganță, echilibru, rafinament)
-- Varianta 2: potrivită pentru personalitate de tip Bujor (căldură, generozitate, empatie)
-- Varianta 3: potrivită pentru personalitate de tip Trandafir (forță, pasiune, determinare)
-- Varianta 4: potrivită pentru personalitate de tip Margaretă (simplitate, sinceritate, bucurie)
-- Varianta 5: potrivită pentru personalitate de tip Floarea-soarelui (optimism, curaj, energie)
-- Varianta 6: potrivită pentru personalitate de tip Floare albastră (profunzime, sensibilitate, introspecție)
+- Varianta 1: personalitate Lalea (eleganță, echilibru, rafinament, discretă)
+- Varianta 2: personalitate Bujor (căldură, generozitate, empatie, grijă)  
+- Varianta 3: personalitate Trandafir (forță, pasiune, determinare, curaj)
+- Varianta 4: personalitate Margaretă (simplitate, sinceritate, bucurie, autentică)
+- Varianta 5: personalitate Floarea-soarelui (optimism, curaj, energie, entuziasm)
+- Varianta 6: personalitate Floare albastră (profunzime, sensibilitate, introspecție, creativitate)
 
-Respectă STRICT acest format JSON (fără alt text înainte sau după):
+Format JSON STRICT (fără alt text înainte sau după):
 [
-  {
+  {{
     "text": "Întrebarea aici?",
-    "options": ["Răspuns Lalea", "Răspuns Bujor", "Răspuns Trandafir", "Răspuns Margaretă", "Răspuns Floarea-soarelui", "Răspuns Floare albastră"]
-  }
+    "options": ["Lalea", "Bujor", "Trandafir", "Margaretă", "Floarea-soarelui", "Floare albastră"]
+  }}
 ]
 
 Reguli:
-- Exact 7 obiecte în array
-- Exact 6 stringuri în fiecare "options"
-- Întrebările să fie variate: despre dimineți, relații, hobby-uri, provocări, atmosferă, valori, seară
-- Nu repeta întrebări identice sau foarte similare
+- Exact 7 obiecte
+- Exact 6 stringuri în fiecare "options"  
 - Fiecare răspuns max 10 cuvinte
-- Răspunde DOAR cu JSON valid, nimic altceva"""
+- NU repeta nicio formulare clasică (ex: "cum începi dimineața")
+- Fii SURPRINZĂTOR și ORIGINAL
+- Răspunde DOAR cu JSON valid"""
 
     try:
         response = client.chat.completions.create(
             model=deployment,
-            temperature=0.9,
-            max_tokens=1500,
+            temperature=1.0,
+            max_completion_tokens=1800,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -240,6 +305,10 @@ Reguli:
         ):
             return {"questions": FALLBACK_QUESTIONS, "source": "fallback"}
 
+        # Shuffle option order per question while preserving index→flower mapping
+        # (We DON'T shuffle — the order IS the mapping. But we shuffle question order.)
+        random.shuffle(questions)
+
         return {"questions": questions, "source": "ai"}
 
     except Exception:
@@ -251,7 +320,12 @@ async def generate_illustration(
     photos: list[UploadFile] = File(...),
     flowers: list[str] = Form(...),
 ):
-    """Accept 1-4 photos + flower types, generate a kawaii illustration via Azure OpenAI."""
+    """Accept 1-4 photos + flower types, generate a kawaii illustration via Azure OpenAI.
+
+    Two-step process:
+    1. Use GPT vision to describe each person's appearance from the photos.
+    2. Use DALL-E 3 to generate the kawaii illustration from the description.
+    """
     if len(photos) < 1 or len(photos) > 4:
         return JSONResponse({"error": "Încarcă între 1 și 4 fotografii."}, status_code=400)
     if len(photos) != len(flowers):
@@ -267,7 +341,8 @@ async def generate_illustration(
     if client is None:
         return JSONResponse({"error": "Serviciul AI nu este disponibil."}, status_code=503)
 
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
+    chat_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.2-chat")
+    dalle_deployment = os.getenv("AZURE_DALLE_DEPLOYMENT_NAME", "dall-e-3")
 
     # Read and encode each photo (cap at 5 MB each)
     photo_entries: list[dict] = []
@@ -282,56 +357,84 @@ async def generate_illustration(
         mime = photo.content_type or "image/jpeg"
         photo_entries.append({"b64": b64, "flower": flower, "mime": mime})
 
-    # Build flower assignment text
+    # ── Step 1: Use GPT vision to describe each person ──
     flower_lines = []
     for i, entry in enumerate(photo_entries):
         label = FLOWER_LABELS[entry["flower"]]
         flower_lines.append(f"- Persoana {i + 1}: floarea {label}")
 
-    prompt = (
-        f"Analizează {'această fotografie' if len(photo_entries) == 1 else 'aceste fotografii'} "
-        f"și generează o ilustrație adorabilă, în stil cartoon kawaii, "
-        f"cu {'persoana' if len(photo_entries) == 1 else 'persoanele'} din "
-        f"{'fotografie' if len(photo_entries) == 1 else 'fotografii'} "
-        f"într-o grădină fermecată plină de flori.\n\n"
-        f"Asocierile cu flori:\n" + "\n".join(flower_lines) + "\n\n"
-        "Reguli importante:\n"
-        "- Păstrează trăsăturile distinctive ale fiecărei persoane (culoarea părului, "
-        "forma feței, ochelari dacă au, lungimea părului, etc.)\n"
-        "- Fiecare persoană ține sau este înconjurată de floarea ei\n"
-        "- Stil: cute, kawaii, pasteluri, cald, prietenos, Disney/Pixar\n"
-        "- Fundal: grădină fermecată cu flori\n"
-        "- Toate persoanele sunt împreună într-o singură scenă\n"
-        "- Generează DOAR imaginea, fără text suprapus."
+    vision_prompt = (
+        f"Descrie detaliat aparența {'persoanei' if len(photo_entries) == 1 else 'fiecărei persoane'} "
+        f"din {'această fotografie' if len(photo_entries) == 1 else 'aceste fotografii'}.\n\n"
+        "Pentru fiecare persoană, menționează:\n"
+        "- Culoarea și lungimea părului, stilul coafurii\n"
+        "- Forma feței, culoarea pielii\n"
+        "- Ochelari (dacă are)\n"
+        "- Orice trăsătură distinctivă vizibilă\n"
+        "- Vârsta aproximativă\n\n"
+        "Răspunde concis, doar descrierile, fără introducere."
     )
 
-    # Build Responses API input with photos
-    input_content: list[dict] = [{"type": "input_text", "text": prompt}]
+    vision_content: list[dict] = [{"type": "text", "text": vision_prompt}]
     for entry in photo_entries:
-        input_content.append(
+        vision_content.append(
             {
-                "type": "input_image",
-                "image_url": f"data:{entry['mime']};base64,{entry['b64']}",
+                "type": "image_url",
+                "image_url": {"url": f"data:{entry['mime']};base64,{entry['b64']}"},
             }
         )
 
     try:
-        response = client.responses.create(
-            model=deployment,
-            input=[{"role": "user", "content": input_content}],
-            tools=[{"type": "image_generation", "size": "1024x1024", "quality": "high"}],
+        vision_response = client.chat.completions.create(
+            model=chat_deployment,
+            max_completion_tokens=600,
+            messages=[
+                {"role": "user", "content": vision_content},
+            ],
+        )
+        description = (vision_response.choices[0].message.content or "").strip()
+        if not description:
+            return JSONResponse({"error": "Nu am putut analiza fotografiile."}, status_code=500)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"Analiza fotografiei a eșuat: {str(exc)}"},
+            status_code=500,
         )
 
-        # Extract the generated image from the response output
-        for item in response.output:
-            if item.type == "image_generation_call":
-                return {"image": item.result}
+    # ── Step 2: Generate kawaii illustration with DALL-E 3 ──
+    dalle_prompt = (
+        "Create an adorable kawaii cartoon illustration in a cute Disney/Pixar pastel style.\n\n"
+        f"The scene features {'a woman' if len(photo_entries) == 1 else f'{len(photo_entries)} women'} "
+        "together in an enchanted garden full of flowers.\n\n"
+        f"Description of {'the person' if len(photo_entries) == 1 else 'each person'}:\n"
+        f"{description}\n\n"
+        "Flower assignments:\n" + "\n".join(flower_lines) + "\n\n"
+        "Rules:\n"
+        "- Keep all distinctive features from the description (hair color, length, glasses, etc.)\n"
+        "- Each person holds or is surrounded by their assigned flower\n"
+        "- Style: cute, kawaii, soft pastels, warm, friendly\n"
+        "- Background: enchanted garden with flowers and soft light\n"
+        "- All people together in one scene\n"
+        "- NO text overlays on the image."
+    )
 
-        return JSONResponse({"error": "Nu s-a generat nicio imagine."}, status_code=500)
+    try:
+        image_response = client.images.generate(
+            model=dalle_deployment,
+            prompt=dalle_prompt,
+            size="1024x1024",
+            quality="hd",
+            n=1,
+            response_format="b64_json",
+        )
+        image_b64 = image_response.data[0].b64_json
+        if not image_b64:
+            return JSONResponse({"error": "Nu s-a generat nicio imagine."}, status_code=500)
+        return {"image": image_b64}
 
     except Exception as exc:
         return JSONResponse(
-            {"error": f"Generarea a eșuat: {str(exc)}"},
+            {"error": f"Generarea ilustrației a eșuat: {str(exc)}"},
             status_code=500,
         )
 
@@ -346,14 +449,39 @@ async def ai_message(body: AiMessageRequest):
     traits = sanitize_traits(body.traits)
     traits_line = ", ".join(traits) if traits else "fără indicii suplimentare"
 
+    # Randomize the writing style for unique results every time
+    styles = [
+        "cald și poetic, ca o scrisoare de la o prietenă apropiată",
+        "inspirațional și energic, ca un discurs motivațional delicat",
+        "intim și reflectiv, ca o pagină de jurnal frumoasă",
+        "jucăuș și sincer, ca o descriere făcută cu drag",
+        "elegant și contemplativ, ca o poezie în proză",
+        "direct și afectuos, ca un toast de suflet la o masă între prietene",
+    ]
+    style = random.choice(styles)
+
+    # Randomize the focus angle
+    angles = [
+        "cum influențează ea relațiile cu ceilalți",
+        "ce forță interioară ascunde",
+        "cum se vede feminitatea ei în viața de zi cu zi",
+        "ce o face unică în felul ei de a fi",
+        "cum vede ea frumusețea în lume",
+        "ce energie specială aduce în cameră",
+    ]
+    angle = random.choice(angles)
+
     system_prompt = (
-        "Scrii în română pentru femei, poetic dar clar, fără metafore obscure, "
-        "fără clișee, fără limbaj psihologic sau diagnostic."
+        f"Scrii în română pentru femei. Tonul: {style}. "
+        "Fără clișee, fără limbaj psihologic sau diagnostic. "
+        "Fiecare text trebuie să fie UNIC — nu repeta formulări standard."
     )
     user_prompt = (
-        f"Generează EXACT 4-5 propoziții despre semnificația unei flori de personalitate. "
+        f"Generează EXACT 4-5 propoziții despre semnificația florii de personalitate. "
         f'Textul trebuie să înceapă EXACT cu: „Faptul că floarea ta este {flower_label} spune despre tine că…" '
+        f"Concentrează-te pe: {angle}. "
         f"Folosește ca indicii aceste trăsături: {traits_line}. "
+        "Fiecare propoziție să aducă o idee nouă, nu parafraza aceleiași. "
         "Nu adăuga titlu, listă sau introducere suplimentară."
     )
 
@@ -361,13 +489,13 @@ async def ai_message(body: AiMessageRequest):
     if client is None:
         return {"text": get_fallback(flower), "source": "fallback"}
 
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.2-chat")
 
     try:
         response = client.chat.completions.create(
             model=deployment,
-            temperature=0.6,
-            max_tokens=260,
+            temperature=0.85,
+            max_completion_tokens=300,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

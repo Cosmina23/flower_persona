@@ -64,8 +64,20 @@ export default function App() {
       <section className="start-screen" aria-live="polite">
         <div className="start-screen__content">
           <h1>Quiz de personalitate: ce floare ești?</h1>
-          <p className="start-text">Se generează întrebările tale unice…</p>
-          <div className="ai-loader">Se încarcă…</div>
+          <p className="start-text">
+            AI-ul creează întrebări unice, doar pentru tine…
+          </p>
+          <div className="loading-flowers">
+            <span className="loading-flower" style={{ animationDelay: "0s" }}>🌷</span>
+            <span className="loading-flower" style={{ animationDelay: "0.2s" }}>🌸</span>
+            <span className="loading-flower" style={{ animationDelay: "0.4s" }}>🌹</span>
+            <span className="loading-flower" style={{ animationDelay: "0.6s" }}>🌼</span>
+            <span className="loading-flower" style={{ animationDelay: "0.8s" }}>🌻</span>
+            <span className="loading-flower" style={{ animationDelay: "1.0s" }}>💐</span>
+          </div>
+          <p className="loading-hint">
+            Fiecare quiz este diferit — întrebările se generează acum!
+          </p>
         </div>
       </section>
     );

@@ -91,7 +91,7 @@ async function requestOpenAI({ flowerLabel, traits }) {
     body: JSON.stringify({
       model: "gpt-4o-mini",
       temperature: 0.6,
-      max_tokens: 260,
+      max_completion_tokens: 260,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }

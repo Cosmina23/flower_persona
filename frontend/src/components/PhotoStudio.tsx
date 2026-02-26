@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   FLOWERS,
   FLOWER_LABELS,
@@ -28,6 +28,15 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
   const [generatedImage, setGeneratedImage] = useState("");
   const [error, setError] = useState("");
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  /* ── camera state ── */
+  const [cameraSlotIdx, setCameraSlotIdx] = useState<number | null>(null);
+  const [cameraPermission, setCameraPermission] = useState<
+    "prompt" | "granted" | "denied" | null
+  >(null);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   /* ── slot management ── */
   const addSlot = useCallback(() => {
@@ -59,6 +68,74 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
       next[idx] = { ...next[idx], flower };
       return next;
     });
+  }, []);
+
+  /* ── camera logic ── */
+  const stopCamera = useCallback(() => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((t) => t.stop());
+      setCameraStream(null);
+    }
+    setCameraSlotIdx(null);
+    setCameraPermission(null);
+  }, [cameraStream]);
+
+  const requestCamera = useCallback((idx: number) => {
+    setCameraSlotIdx(idx);
+    setCameraPermission("prompt");
+  }, []);
+
+  const startCamera = useCallback(async () => {
+    setCameraPermission("granted");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 960 } },
+        audio: false,
+      });
+      setCameraStream(stream);
+    } catch {
+      setCameraPermission("denied");
+    }
+  }, []);
+
+  const capturePhoto = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || cameraSlotIdx === null) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const file = new File([blob], `camera-${Date.now()}.jpg`, {
+          type: "image/jpeg",
+        });
+        handlePhoto(cameraSlotIdx, file);
+        stopCamera();
+      },
+      "image/jpeg",
+      0.92
+    );
+  }, [cameraSlotIdx, handlePhoto, stopCamera]);
+
+  // Attach stream to video element
+  useEffect(() => {
+    if (videoRef.current && cameraStream) {
+      videoRef.current.srcObject = cameraStream;
+    }
+  }, [cameraStream]);
+
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => {
+      cameraStream?.getTracks().forEach((t) => t.stop());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ── generate illustration ── */
@@ -133,39 +210,49 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
 
                 <div className="studio-slot__body">
                   {/* photo upload */}
-                  <div
-                    className={`studio-upload ${slot.preview ? "has-preview" : ""}`}
-                    onClick={() => fileInputRefs.current[idx]?.click()}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ")
-                        fileInputRefs.current[idx]?.click();
-                    }}
-                  >
-                    {slot.preview ? (
-                      <img
-                        className="studio-upload__preview"
-                        src={slot.preview}
-                        alt={`Persoana ${idx + 1}`}
+                  <div className="studio-upload-group">
+                    <div
+                      className={`studio-upload ${slot.preview ? "has-preview" : ""}`}
+                      onClick={() => fileInputRefs.current[idx]?.click()}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ")
+                          fileInputRefs.current[idx]?.click();
+                      }}
+                    >
+                      {slot.preview ? (
+                        <img
+                          className="studio-upload__preview"
+                          src={slot.preview}
+                          alt={`Persoana ${idx + 1}`}
+                        />
+                      ) : (
+                        <span className="studio-upload__placeholder">
+                          📁<br />Încarcă foto
+                        </span>
+                      )}
+                      <input
+                        ref={(el) => {
+                          fileInputRefs.current[idx] = el;
+                        }}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handlePhoto(idx, f);
+                        }}
                       />
-                    ) : (
-                      <span className="studio-upload__placeholder">
-                        📷<br />Apasă pentru foto
-                      </span>
-                    )}
-                    <input
-                      ref={(el) => {
-                        fileInputRefs.current[idx] = el;
-                      }}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) handlePhoto(idx, f);
-                      }}
-                    />
+                    </div>
+                    <button
+                      type="button"
+                      className="studio-camera-btn"
+                      onClick={() => requestCamera(idx)}
+                      title="Folosește camera"
+                    >
+                      📷 Camera
+                    </button>
                   </div>
 
                   {/* flower selector */}
@@ -248,6 +335,95 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
           )}
         </div>
       </section>
+
+      {/* ── Camera Permission Dialog ── */}
+      {cameraPermission === "prompt" && (
+        <div className="camera-overlay" onClick={stopCamera}>
+          <div
+            className="camera-dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2>📷 Permisiune cameră</h2>
+            <p>
+              Dorești să folosești camera pentru a face o fotografie?
+              Aceasta va fi folosită doar pentru a genera ilustrația.
+            </p>
+            <div className="camera-dialog__actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={startCamera}
+              >
+                Da, permite camera
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={stopCamera}
+              >
+                Nu, anulează
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Camera Denied Message ── */}
+      {cameraPermission === "denied" && (
+        <div className="camera-overlay" onClick={stopCamera}>
+          <div
+            className="camera-dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2>⚠️ Camera nu este disponibilă</h2>
+            <p>
+              Nu s-a putut accesa camera. Verifică dacă ai acordat permisiunea
+              în browser sau folosește opțiunea de încărcare a unei fotografii.
+            </p>
+            <div className="camera-dialog__actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={stopCamera}
+              >
+                Închide
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Camera Viewfinder ── */}
+      {cameraStream && (
+        <div className="camera-overlay">
+          <div className="camera-viewfinder">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="camera-video"
+            />
+            <canvas ref={canvasRef} className="hidden" />
+            <div className="camera-viewfinder__actions">
+              <button
+                type="button"
+                className="btn btn-primary camera-capture-btn"
+                onClick={capturePhoto}
+              >
+                📸 Fotografiază
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={stopCamera}
+              >
+                ✕ Anulează
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
