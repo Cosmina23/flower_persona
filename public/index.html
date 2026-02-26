@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz de Personalitate - Floare (Local)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="startScreen" class="start-screen" aria-live="polite">
+    <div class="start-screen__content">
+      <h1>Quiz de personalitate: ce floare ești?</h1>
+      <p class="start-text">Bine ai venit! Răspunde la 7 întrebări și descoperă floarea ta.</p>
+      <button id="start-btn" type="button" class="btn btn-primary">Începe quiz-ul</button>
+    </div>
+  </section>
+
+  <main id="quizScreen" class="shell hidden">
+    <section class="frame">
+      <div class="panel">
+        <h1>Quiz de personalitate: ce floare ești?</h1>
+
+        <section id="status-section" class="status-card hidden" aria-live="polite">
+          <p id="progress-text" class="progress-text">Întrebarea 1/7</p>
+          <div class="progress-track" role="progressbar" aria-valuemin="1" aria-valuemax="7" aria-valuenow="1">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+        </section>
+
+        <section id="quiz-section" class="card hidden" aria-live="polite">
+          <h2 id="question-title" class="question-title"></h2>
+          <div id="options" class="options"></div>
+          <div class="actions">
+            <button id="prev-btn" type="button" class="btn btn-secondary">Înapoi</button>
+            <button id="next-btn" type="button" class="btn btn-primary">Următoarea întrebare</button>
+            <button id="finish-btn" type="button" class="btn btn-primary hidden">Vezi rezultatul</button>
+          </div>
+          <p id="error" class="error hidden"></p>
+        </section>
+
+        <section id="resultSection" class="card hidden" aria-live="polite">
+          <h2 id="resultFlower"></h2>
+          <p id="result-text" class="result-text"></p>
+
+          <div id="aiBox" class="ai-panel hidden">
+            <p id="aiLoader" class="ai-loader hidden">AI generează…</p>
+            <h3 class="ai-heading">Mesaj generat de AI</h3>
+            <p id="aiText" class="ai-output"></p>
+          </div>
+
+          <p id="soldout-msg" class="soldout hidden">Ne pare rău, toate brelocurile s-au epuizat.</p>
+          <div class="actions actions-stacked">
+            <button id="nextBtn" type="button" class="btn btn-primary">Următoarea participantă</button>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
