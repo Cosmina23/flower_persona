@@ -1,65 +1,95 @@
-# Quiz de Personalitate - Floare (local + AI opțional)
+# Quiz de Personalitate - Floare
 
-Aplicația decide floarea strict local (scor + stoc în `localStorage`). AI doar descrie floarea finală.
+A personality quiz app for a women's workshop event. Users answer 7 questions and get assigned a flower personality, with an AI-generated personalized description.
 
-## Rulare
+## Architecture
 
-1. Instalează dependențele:
+```
+flower_persona/
+├── backend/          # FastAPI (Python) — AI message endpoint
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── .env
+├── frontend/         # React + Vite — Quiz UI
+│   ├── src/
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   └── .env
+├── docker-compose.yml
+├── deploy.sh         # Azure Container Apps deploy (bash)
+├── deploy.ps1        # Azure Container Apps deploy (PowerShell)
+├── public/           # (legacy) Original vanilla JS frontend
+├── server.js         # (legacy) Original Express backend
+└── api/              # (legacy) Vercel serverless functions
+```
 
+## Quick Start (Docker Compose)
+
+1. **Configure backend credentials** — edit `backend/.env`:
+   ```
+   AZURE_OPENAI_API_KEY=your-key
+   AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+   AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o-mini
+   ```
+
+2. **Run locally:**
    ```bash
-   npm install
+   docker-compose up --build
    ```
 
-2. Setează cheia OpenAI în environment (`OPENAI_API_KEY`):
+3. **Open** http://localhost:3000
 
-   PowerShell (sesiunea curentă):
+## Deploy to Azure Container Apps
 
-   ```powershell
-   $env:OPENAI_API_KEY="cheia_ta_aici"
-   ```
+### Prerequisites
+- Azure CLI (`az`) installed and logged in (`az login`)
+- Docker installed
 
-   CMD (sesiunea curentă):
+### Deploy
 
-   ```cmd
-   set OPENAI_API_KEY=cheia_ta_aici
-   ```
+**Bash (Linux/macOS/WSL):**
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
 
-3. Pornește backend-ul local:
+**PowerShell (Windows):**
+```powershell
+.\deploy.ps1
+```
 
-   ```bash
-   npm start
-   ```
+The script will:
+1. Create a Resource Group + Azure Container Registry
+2. Build & push both Docker images
+3. Deploy backend as a Container App
+4. Build frontend with the backend URL baked in
+5. Deploy frontend as a public Container App
+6. Print the live URL
 
-4. Deschide frontend-ul:
+### Tear down
+```bash
+az group delete --name flower-quiz-rg --yes --no-wait
+```
 
-   - fie direct `public/index.html`
-   - fie cu server static local (ex. `npx --yes serve public`)
+## Backend API
 
-## Endpoint backend
-
-- `POST http://localhost:3000/ai-message`
-- Input:
+- `GET /health` — Health check
+- `POST /ai-message` — Generate flower personality text
 
   ```json
   { "flower": "lalea", "traits": ["eleganță", "echilibru"] }
   ```
 
-- Output:
-
+  Returns:
   ```json
   { "text": "...", "source": "ai" }
   ```
 
-  sau
+## Fallback
 
-  ```json
-  { "text": "...", "source": "fallback" }
-  ```
-
-## Fallback offline
-
-- Dacă `OPENAI_API_KEY` lipsește sau AI nu răspunde, backend-ul returnează text fallback per floare.
-- Dacă backend-ul nu este disponibil deloc, frontend-ul afișează fallback local și mesajul: `AI indisponibil, am afișat varianta offline.`
+- If Azure OpenAI credentials are missing or the API fails, the backend returns pre-written Romanian fallback text per flower.
+- If the backend is unreachable entirely, the frontend displays its own local fallback text.
 
 ## License
 
