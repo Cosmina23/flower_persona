@@ -37,13 +37,10 @@ export async function fetchQuizQuestions(): Promise<Question[]> {
 }
 
 export async function generateIllustration(
-  slots: { file: File; flower: FlowerKey }[]
-): Promise<{ image: string }> {
+  photo: File
+): Promise<{ image: string; people_count?: number; descriptions?: unknown[] }> {
   const formData = new FormData();
-  for (const s of slots) {
-    formData.append("photos", s.file);
-    formData.append("flowers", s.flower);
-  }
+  formData.append("photo", photo);
 
   const res = await fetch(`${getApiBase()}/generate-illustration`, {
     method: "POST",

@@ -1,36 +1,20 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import {
-  FLOWERS,
-  FLOWER_LABELS,
-  type FlowerKey,
-} from "../data/questions";
 import { generateIllustration } from "../services/api";
-
-interface PhotoSlot {
-  file: File | null;
-  preview: string;
-  flower: FlowerKey;
-}
-
-const emptySlot = (): PhotoSlot => ({
-  file: null,
-  preview: "",
-  flower: "lalea",
-});
 
 interface PhotoStudioProps {
   onClose: () => void;
 }
 
 export default function PhotoStudio({ onClose }: PhotoStudioProps) {
-  const [slots, setSlots] = useState<PhotoSlot[]>([emptySlot()]);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState("");
   const [generating, setGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState("");
+  const [peopleCount, setPeopleCount] = useState<number | null>(null);
   const [error, setError] = useState("");
-  const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   /* ── camera state ── */
-  const [cameraSlotIdx, setCameraSlotIdx] = useState<number | null>(null);
   const [cameraPermission, setCameraPermission] = useState<
     "prompt" | "granted" | "denied" | null
   >(null);
@@ -38,36 +22,25 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  /* ── slot management ── */
-  const addSlot = useCallback(() => {
-    if (slots.length < 4) setSlots((prev) => [...prev, emptySlot()]);
-  }, [slots.length]);
-
-  const removeSlot = useCallback(
-    (idx: number) => {
-      if (slots.length > 1) setSlots((prev) => prev.filter((_, i) => i !== idx));
-    },
-    [slots.length]
-  );
-
-  const handlePhoto = useCallback((idx: number, file: File) => {
+  /* ── photo handling ── */
+  const handlePhoto = useCallback((file: File) => {
+    setPhotoFile(file);
+    setError("");
+    setGeneratedImage("");
+    setPeopleCount(null);
     const reader = new FileReader();
     reader.onload = () => {
-      setSlots((prev) => {
-        const next = [...prev];
-        next[idx] = { ...next[idx], file, preview: reader.result as string };
-        return next;
-      });
+      setPhotoPreview(reader.result as string);
     };
     reader.readAsDataURL(file);
   }, []);
 
-  const handleFlowerChange = useCallback((idx: number, flower: FlowerKey) => {
-    setSlots((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], flower };
-      return next;
-    });
+  const clearPhoto = useCallback(() => {
+    setPhotoFile(null);
+    setPhotoPreview("");
+    setError("");
+    setGeneratedImage("");
+    setPeopleCount(null);
   }, []);
 
   /* ── camera logic ── */
@@ -76,12 +49,10 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
       cameraStream.getTracks().forEach((t) => t.stop());
       setCameraStream(null);
     }
-    setCameraSlotIdx(null);
     setCameraPermission(null);
   }, [cameraStream]);
 
-  const requestCamera = useCallback((idx: number) => {
-    setCameraSlotIdx(idx);
+  const requestCamera = useCallback(() => {
     setCameraPermission("prompt");
   }, []);
 
@@ -101,7 +72,7 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
   const capturePhoto = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || cameraSlotIdx === null) return;
+    if (!video || !canvas) return;
 
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -115,13 +86,13 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
         const file = new File([blob], `camera-${Date.now()}.jpg`, {
           type: "image/jpeg",
         });
-        handlePhoto(cameraSlotIdx, file);
+        handlePhoto(file);
         stopCamera();
       },
       "image/jpeg",
       0.92
     );
-  }, [cameraSlotIdx, handlePhoto, stopCamera]);
+  }, [handlePhoto, stopCamera]);
 
   // Attach stream to video element
   useEffect(() => {
@@ -140,26 +111,22 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
 
   /* ── generate illustration ── */
   const generate = useCallback(async () => {
-    const filled = slots.filter((s) => s.file !== null) as {
-      file: File;
-      preview: string;
-      flower: FlowerKey;
-    }[];
-
-    if (filled.length === 0) {
-      setError("Adaugă cel puțin o fotografie.");
+    if (!photoFile) {
+      setError("Încarcă o fotografie mai întâi.");
       return;
     }
 
     setGenerating(true);
     setError("");
     setGeneratedImage("");
+    setPeopleCount(null);
 
     try {
-      const res = await generateIllustration(
-        filled.map((s) => ({ file: s.file, flower: s.flower }))
-      );
+      const res = await generateIllustration(photoFile);
       setGeneratedImage(res.image);
+      if (res.people_count) {
+        setPeopleCount(res.people_count);
+      }
     } catch (e: unknown) {
       const msg =
         e instanceof Error ? e.message : "Nu s-a putut genera ilustrația.";
@@ -167,7 +134,7 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
     } finally {
       setGenerating(false);
     }
-  }, [slots]);
+  }, [photoFile]);
 
   /* ── download image ── */
   const download = useCallback(() => {
@@ -184,105 +151,76 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
         <div className="panel studio-panel">
           <h1>🎨 Studio Ilustrații</h1>
           <p className="start-text">
-            Încarcă până la 4 fotografii, alege floarea fiecărei persoane și
-            lasă AI-ul să creeze o ilustrație cartoon adorabilă!
+            Încarcă o fotografie de grup sau individuală și lasă AI-ul să
+            detecteze persoanele și să creeze o ilustrație cartoon adorabilă!
           </p>
 
-          {/* ── photo slots ── */}
-          <div className="studio-slots">
-            {slots.map((slot, idx) => (
-              <div className="studio-slot" key={idx}>
-                <div className="studio-slot__header">
-                  <span className="studio-slot__label">
-                    Persoana {idx + 1}
-                  </span>
-                  {slots.length > 1 && (
-                    <button
-                      type="button"
-                      className="studio-slot__remove"
-                      onClick={() => removeSlot(idx)}
-                      aria-label="Șterge"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-
-                <div className="studio-slot__body">
-                  {/* photo upload */}
-                  <div className="studio-upload-group">
-                    <div
-                      className={`studio-upload ${slot.preview ? "has-preview" : ""}`}
-                      onClick={() => fileInputRefs.current[idx]?.click()}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ")
-                          fileInputRefs.current[idx]?.click();
-                      }}
-                    >
-                      {slot.preview ? (
-                        <img
-                          className="studio-upload__preview"
-                          src={slot.preview}
-                          alt={`Persoana ${idx + 1}`}
-                        />
-                      ) : (
-                        <span className="studio-upload__placeholder">
-                          📁<br />Încarcă foto
-                        </span>
-                      )}
-                      <input
-                        ref={(el) => {
-                          fileInputRefs.current[idx] = el;
-                        }}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) handlePhoto(idx, f);
-                        }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="studio-camera-btn"
-                      onClick={() => requestCamera(idx)}
-                      title="Folosește camera"
-                    >
-                      📷 Camera
-                    </button>
-                  </div>
-
-                  {/* flower selector */}
-                  <select
-                    className="studio-flower-select"
-                    value={slot.flower}
-                    onChange={(e) =>
-                      handleFlowerChange(idx, e.target.value as FlowerKey)
-                    }
-                  >
-                    {FLOWERS.map((f) => (
-                      <option key={f} value={f}>
-                        {FLOWER_LABELS[f]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            ))}
+          {/* ── single photo upload ── */}
+          <div className="studio-upload-area">
+            <div
+              className={`studio-upload studio-upload--large ${photoPreview ? "has-preview" : ""}`}
+              onClick={() => fileInputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ")
+                  fileInputRef.current?.click();
+              }}
+            >
+              {photoPreview ? (
+                <img
+                  className="studio-upload__preview"
+                  src={photoPreview}
+                  alt="Fotografia încărcată"
+                />
+              ) : (
+                <span className="studio-upload__placeholder">
+                  📁<br />Încarcă fotografie
+                  <br />
+                  <small>AI-ul va detecta automat persoanele</small>
+                </span>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handlePhoto(f);
+                }}
+              />
+            </div>
+            <div className="studio-upload-buttons">
+              <button
+                type="button"
+                className="studio-camera-btn"
+                onClick={requestCamera}
+                title="Folosește camera"
+              >
+                📷 Camera
+              </button>
+              {photoPreview && (
+                <button
+                  type="button"
+                  className="studio-camera-btn studio-clear-btn"
+                  onClick={clearPhoto}
+                  title="Șterge fotografia"
+                >
+                  ✕ Șterge
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* ── add person button ── */}
-          {slots.length < 4 && (
-            <button
-              type="button"
-              className="btn btn-secondary studio-add-btn"
-              onClick={addSlot}
-            >
-              + Adaugă persoană
-            </button>
+          {/* ── people count info ── */}
+          {peopleCount !== null && (
+            <div className="studio-info">
+              <p>
+                🔍 AI a detectat <strong>{peopleCount}</strong>{" "}
+                {peopleCount === 1 ? "persoană" : "persoane"} în fotografie.
+              </p>
+            </div>
           )}
 
           {/* ── error ── */}
@@ -294,7 +232,7 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
               type="button"
               className="btn btn-primary"
               onClick={generate}
-              disabled={generating}
+              disabled={generating || !photoFile}
             >
               {generating ? "Se generează…" : "🎨 Generează ilustrația"}
             </button>
@@ -311,7 +249,7 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
           {generating && (
             <div className="ai-panel" style={{ marginTop: 14 }}>
               <p className="ai-loader">
-                AI-ul desenează ilustrația ta… poate dura ~30 secunde.
+                AI-ul analizează fotografia și desenează ilustrația ta… poate dura ~30 secunde.
               </p>
             </div>
           )}

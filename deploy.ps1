@@ -17,8 +17,8 @@ $ErrorActionPreference = "Stop"
 # ── Configuration ──
 $ResourceGroup    = if ($env:RESOURCE_GROUP)    { $env:RESOURCE_GROUP }    else { "flower-quiz-rg" }
 $Location         = if ($env:LOCATION)          { $env:LOCATION }          else { "westeurope" }
-$Suffix           = Get-Date -Format "HHmmss"
-$AcrName          = if ($env:ACR_NAME)          { $env:ACR_NAME }          else { "flowerquizacr$Suffix" }
+$Suffix           = ""
+$AcrName          = if ($env:ACR_NAME)          { $env:ACR_NAME }          else { "flowerquizacr" }
 $EnvironmentName  = if ($env:ENVIRONMENT_NAME)  { $env:ENVIRONMENT_NAME }  else { "flower-quiz-env" }
 $BackendApp       = if ($env:BACKEND_APP)       { $env:BACKEND_APP }       else { "flower-backend" }
 $FrontendApp      = if ($env:FRONTEND_APP)      { $env:FRONTEND_APP }      else { "flower-frontend" }

@@ -2,7 +2,8 @@ import os
 import json
 import base64
 import random
-from fastapi import FastAPI, File, Form, UploadFile
+import traceback
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -158,7 +159,14 @@ FALLBACK_QUESTIONS = [
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    has_key = bool(os.getenv("AZURE_OPENAI_API_KEY"))
+    has_endpoint = bool(os.getenv("AZURE_OPENAI_ENDPOINT"))
+    return {
+        "status": "ok",
+        "ai_configured": has_key and has_endpoint,
+        "has_api_key": has_key,
+        "has_endpoint": has_endpoint,
+    }
 
 
 @app.get("/generate-quiz")
@@ -311,110 +319,147 @@ Reguli:
 
         return {"questions": questions, "source": "ai"}
 
-    except Exception:
+    except Exception as exc:
+        print(f"[QUIZ ERROR] {type(exc).__name__}: {exc}", flush=True)
         return {"questions": FALLBACK_QUESTIONS, "source": "fallback"}
 
 
 @app.post("/generate-illustration")
 async def generate_illustration(
-    photos: list[UploadFile] = File(...),
-    flowers: list[str] = Form(...),
+    photo: UploadFile = File(...),
 ):
-    """Accept 1-4 photos + flower types, generate a kawaii illustration via Azure OpenAI.
+    """Accept a single photo. AI detects how many people are in it, describes
+    each person, then generates a kawaii illustration via DALL-E 3.
 
-    Two-step process:
-    1. Use GPT vision to describe each person's appearance from the photos.
-    2. Use DALL-E 3 to generate the kawaii illustration from the description.
+    Three-step process:
+    1. GPT vision detects the number of people and describes each one.
+    2. Build a DALL-E prompt based on the detected people.
+    3. Generate the kawaii illustration.
     """
-    if len(photos) < 1 or len(photos) > 4:
-        return JSONResponse({"error": "Încarcă între 1 și 4 fotografii."}, status_code=400)
-    if len(photos) != len(flowers):
-        return JSONResponse(
-            {"error": "Fiecare fotografie are nevoie de o floare asociată."},
-            status_code=400,
-        )
-    for f in flowers:
-        if f not in FLOWER_LABELS:
-            return JSONResponse({"error": f"Tip de floare invalid: {f}"}, status_code=400)
-
     client = get_azure_openai_client()
     if client is None:
-        return JSONResponse({"error": "Serviciul AI nu este disponibil."}, status_code=503)
+        return JSONResponse(
+            {"error": "Serviciul AI nu este disponibil. Verifică variabilele de mediu AZURE_OPENAI_API_KEY și AZURE_OPENAI_ENDPOINT."},
+            status_code=503,
+        )
 
     chat_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.2-chat")
     dalle_deployment = os.getenv("AZURE_DALLE_DEPLOYMENT_NAME", "dall-e-3")
 
-    # Read and encode each photo (cap at 5 MB each)
-    photo_entries: list[dict] = []
-    for photo, flower in zip(photos, flowers):
-        raw = await photo.read()
-        if len(raw) > 5 * 1024 * 1024:
-            return JSONResponse(
-                {"error": f"Fotografia '{photo.filename}' depășește 5 MB."},
-                status_code=400,
-            )
-        b64 = base64.b64encode(raw).decode("utf-8")
-        mime = photo.content_type or "image/jpeg"
-        photo_entries.append({"b64": b64, "flower": flower, "mime": mime})
+    # Read and encode the photo (cap at 5 MB)
+    raw = await photo.read()
+    if len(raw) > 5 * 1024 * 1024:
+        return JSONResponse(
+            {"error": f"Fotografia '{photo.filename}' depășește 5 MB."},
+            status_code=400,
+        )
+    b64 = base64.b64encode(raw).decode("utf-8")
+    mime = photo.content_type or "image/jpeg"
 
-    # ── Step 1: Use GPT vision to describe each person ──
-    flower_lines = []
-    for i, entry in enumerate(photo_entries):
-        label = FLOWER_LABELS[entry["flower"]]
-        flower_lines.append(f"- Persoana {i + 1}: floarea {label}")
-
+    # ── Step 1: GPT vision — detect people count & describe each person ──
     vision_prompt = (
-        f"Descrie detaliat aparența {'persoanei' if len(photo_entries) == 1 else 'fiecărei persoane'} "
-        f"din {'această fotografie' if len(photo_entries) == 1 else 'aceste fotografii'}.\n\n"
-        "Pentru fiecare persoană, menționează:\n"
-        "- Culoarea și lungimea părului, stilul coafurii\n"
-        "- Forma feței, culoarea pielii\n"
-        "- Ochelari (dacă are)\n"
-        "- Orice trăsătură distinctivă vizibilă\n"
-        "- Vârsta aproximativă\n\n"
-        "Răspunde concis, doar descrierile, fără introducere."
+        "Analizează această fotografie cu atenție.\n\n"
+        "1. Câte persoane sunt în fotografie? (returnează un număr exact)\n"
+        "2. Pentru FIECARE persoană detectată, descrie detaliat:\n"
+        "   - Poziția în fotografie (stânga, centru, dreapta etc.)\n"
+        "   - Culoarea și lungimea părului, stilul coafurii\n"
+        "   - Forma feței, culoarea pielii\n"
+        "   - Ochelari (dacă are)\n"
+        "   - Îmbrăcăminte vizibilă\n"
+        "   - Orice trăsătură distinctivă vizibilă\n"
+        "   - Vârsta aproximativă\n\n"
+        "Răspunde STRICT în acest format JSON (fără alt text):\n"
+        '{\n'
+        '  "people_count": <număr>,\n'
+        '  "descriptions": [\n'
+        '    {"position": "...", "appearance": "descriere detaliată persoana 1"},\n'
+        '    {"position": "...", "appearance": "descriere detaliată persoana 2"}\n'
+        '  ]\n'
+        '}\n\n'
+        "Dacă nu este nicio persoană în fotografie, returnează people_count: 0 și descriptions: []."
     )
 
-    vision_content: list[dict] = [{"type": "text", "text": vision_prompt}]
-    for entry in photo_entries:
-        vision_content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:{entry['mime']};base64,{entry['b64']}"},
-            }
-        )
+    vision_content: list[dict] = [
+        {"type": "text", "text": vision_prompt},
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}"},
+        },
+    ]
 
     try:
         vision_response = client.chat.completions.create(
             model=chat_deployment,
-            max_completion_tokens=600,
+            max_completion_tokens=2000,
             messages=[
                 {"role": "user", "content": vision_content},
             ],
         )
-        description = (vision_response.choices[0].message.content or "").strip()
-        if not description:
-            return JSONResponse({"error": "Nu am putut analiza fotografiile."}, status_code=500)
+        vision_raw = (vision_response.choices[0].message.content or "").strip()
+        if not vision_raw:
+            return JSONResponse({"error": "Nu am putut analiza fotografia."}, status_code=500)
     except Exception as exc:
         return JSONResponse(
             {"error": f"Analiza fotografiei a eșuat: {str(exc)}"},
             status_code=500,
         )
 
+    # Parse the structured vision response
+    try:
+        # Strip markdown code fences if present
+        cleaned = vision_raw
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+
+        analysis = json.loads(cleaned)
+        people_count = int(analysis.get("people_count", 0))
+        descriptions = analysis.get("descriptions", [])
+
+        if people_count == 0 or not descriptions:
+            return JSONResponse(
+                {"error": "Nu am detectat nicio persoană în fotografie. Încearcă cu o altă fotografie."},
+                status_code=400,
+            )
+
+        # Cap at reasonable max
+        if people_count > 8:
+            people_count = 8
+            descriptions = descriptions[:8]
+
+    except (json.JSONDecodeError, ValueError, TypeError):
+        # Fallback: use the raw text as a description, assume 1 person
+        people_count = 1
+        descriptions = [{"position": "centru", "appearance": vision_raw}]
+
+    # Build a human-readable description block for DALL-E
+    desc_lines = []
+    flowers_pool = ["lalele", "bujori", "trandafiri", "margarete", "flori-soarelui", "flori albastre"]
+    for i, d in enumerate(descriptions):
+        appearance = d.get("appearance", "") if isinstance(d, dict) else str(d)
+        position = d.get("position", "") if isinstance(d, dict) else ""
+        flower = flowers_pool[i % len(flowers_pool)]
+        desc_lines.append(
+            f"- Person {i + 1} ({position}): {appearance} — surrounded by {flower}"
+        )
+
+    people_word = "a woman" if people_count == 1 else f"{people_count} women"
+
     # ── Step 2: Generate kawaii illustration with DALL-E 3 ──
     dalle_prompt = (
         "Create an adorable kawaii cartoon illustration in a cute Disney/Pixar pastel style.\n\n"
-        f"The scene features {'a woman' if len(photo_entries) == 1 else f'{len(photo_entries)} women'} "
-        "together in an enchanted garden full of flowers.\n\n"
-        f"Description of {'the person' if len(photo_entries) == 1 else 'each person'}:\n"
-        f"{description}\n\n"
-        "Flower assignments:\n" + "\n".join(flower_lines) + "\n\n"
+        f"The scene features EXACTLY {people_word} together in an enchanted garden full of flowers.\n\n"
+        f"AI detected {people_count} {'person' if people_count == 1 else 'people'} in the original photo.\n"
+        "Description of each person:\n"
+        + "\n".join(desc_lines) + "\n\n"
         "Rules:\n"
-        "- Keep all distinctive features from the description (hair color, length, glasses, etc.)\n"
-        "- Each person holds or is surrounded by their assigned flower\n"
+        "- IMPORTANT: Draw EXACTLY " + str(people_count) + f" {'person' if people_count == 1 else 'people'}, no more, no less\n"
+        "- Keep all distinctive features from the description (hair color, length, glasses, clothing, etc.)\n"
+        "- Each person holds or is surrounded by their assigned flowers\n"
         "- Style: cute, kawaii, soft pastels, warm, friendly\n"
         "- Background: enchanted garden with flowers and soft light\n"
-        "- All people together in one scene\n"
+        "- All people together in one scene, matching their original positions\n"
         "- NO text overlays on the image."
     )
 
@@ -430,7 +475,11 @@ async def generate_illustration(
         image_b64 = image_response.data[0].b64_json
         if not image_b64:
             return JSONResponse({"error": "Nu s-a generat nicio imagine."}, status_code=500)
-        return {"image": image_b64}
+        return {
+            "image": image_b64,
+            "people_count": people_count,
+            "descriptions": descriptions,
+        }
 
     except Exception as exc:
         return JSONResponse(
@@ -492,18 +541,22 @@ async def ai_message(body: AiMessageRequest):
     deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.2-chat")
 
     try:
+        print(f"[AI-MESSAGE] Calling AI for flower={flower}, deployment={deployment}", flush=True)
         response = client.chat.completions.create(
             model=deployment,
-            temperature=0.85,
-            max_completion_tokens=300,
+            temperature=1.0,
+            max_completion_tokens=2000,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
         )
+        finish_reason = response.choices[0].finish_reason if response.choices else "no_choices"
         text = (response.choices[0].message.content or "").strip()
+        print(f"[AI-MESSAGE] finish_reason={finish_reason}, text_len={len(text)}", flush=True)
         if not text:
             return {"text": get_fallback(flower), "source": "fallback"}
         return {"text": text, "source": "ai"}
-    except Exception:
+    except Exception as exc:
+        print(f"[AI-MESSAGE ERROR] {type(exc).__name__}: {exc}", flush=True)
         return {"text": get_fallback(flower), "source": "fallback"}

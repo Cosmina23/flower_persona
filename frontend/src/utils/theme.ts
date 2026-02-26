@@ -35,13 +35,10 @@ export function setTheme(modeOrFlower: string): void {
 
 export function preloadImages(): void {
   const srcs = [
-    "/assets/bg-start.png",
-    "/assets/bg-lalea.png",
-    "/assets/bg-bujor.png",
-    "/assets/bg-trandafir.png",
-    "/assets/bg-margareta.png",
-    "/assets/bg-floarea-soarelui.png",
-    "/assets/bg-floare-albastra.png",
+    "/assets/bg-womens-day.png",
+    "/assets/ui-mainboard.png",
+    "/assets/ui-btn-primary.png",
+    "/assets/ui-btn-secondary.png",
   ];
   srcs.forEach((src) => {
     const img = new Image();
