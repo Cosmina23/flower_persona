@@ -7,7 +7,7 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from openai import AzureOpenAI
+from openai import AsyncAzureOpenAI
 
 app = FastAPI(title="Flower Quiz AI Backend")
 
@@ -63,12 +63,12 @@ def get_fallback(flower: str) -> str:
     return FALLBACK_TEXTS.get(flower, DEFAULT_FALLBACK)
 
 
-def get_azure_openai_client() -> AzureOpenAI | None:
+def get_azure_openai_client() -> AsyncAzureOpenAI | None:
     api_key = os.getenv("AZURE_OPENAI_API_KEY")
     endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
     if not api_key or not endpoint:
         return None
-    return AzureOpenAI(
+    return AsyncAzureOpenAI(
         api_key=api_key,
         azure_endpoint=endpoint,
         api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
@@ -299,7 +299,7 @@ async def generate_illustration(
     ]
 
     try:
-        vision_response = client.chat.completions.create(
+        vision_response = await client.chat.completions.create(
             model=chat_deployment,
             max_completion_tokens=2000,
             messages=[
@@ -387,7 +387,7 @@ async def generate_illustration(
     )
 
     try:
-        image_response = client.images.generate(
+        image_response = await client.images.generate(
             model=dalle_deployment,
             prompt=dalle_prompt,
             size="1024x1024",
@@ -465,7 +465,7 @@ async def ai_message(body: AiMessageRequest):
 
     try:
         print(f"[AI-MESSAGE] Calling AI for flower={flower}, deployment={deployment}", flush=True)
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=deployment,
             temperature=1.0,
             max_completion_tokens=2000,
