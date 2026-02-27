@@ -3,7 +3,7 @@ import json
 import base64
 import random
 import traceback
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -169,172 +169,82 @@ def health():
     }
 
 
+# ── Parse Question.md into a pool of 30 questions ──
+import re as _re
+import pathlib as _pathlib
+
+def _load_questions_from_md() -> list[dict]:
+    """Parse Question.md (30 questions, a-f options) and return list of {text, options}.
+
+    Option mapping: a=Lalea(0), b=Bujor(1), c=Trandafir(2),
+                    d=Margareta(3), e=Floarea-soarelui(4), f=Floare albastră(5)
+    """
+    # Try multiple locations
+    for candidate in [
+        _pathlib.Path(__file__).parent / "Question.md",
+        _pathlib.Path(__file__).parent.parent / "Question.md",
+        _pathlib.Path("/Question.md"),
+    ]:
+        if candidate.exists():
+            md_path = candidate
+            break
+    else:
+        print("[QUIZ] Question.md not found in any location", flush=True)
+        return []
+
+    print(f"[QUIZ] Loading questions from {md_path}", flush=True)
+    content = md_path.read_text(encoding="utf-8")
+    questions: list[dict] = []
+
+    # Split by numbered question pattern: "N. question text"
+    blocks = _re.split(r'\n(?=\d+\.\s)', content)
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        # Match "N. question text"
+        header_match = _re.match(r'^(\d+)\.\s+(.+)', block)
+        if not header_match:
+            continue
+        question_text = header_match.group(2).strip()
+        # Extract a) through f) options
+        options: list[str] = []
+        for letter in ['a', 'b', 'c', 'd', 'e', 'f']:
+            m = _re.search(rf'^{letter}\)\s+(.+)$', block, _re.MULTILINE)
+            if m:
+                options.append(m.group(1).strip())
+        if question_text and len(options) == 6:
+            questions.append({"text": question_text, "options": options})
+
+    print(f"[QUIZ] Loaded {len(questions)} questions from Question.md", flush=True)
+    return questions
+
+ALL_QUESTIONS_POOL = _load_questions_from_md() or FALLBACK_QUESTIONS
+
+
 @app.get("/generate-quiz")
 async def generate_quiz():
-    """Generate 7 unique quiz questions via Azure OpenAI.
+    """Return 7 random questions from the static pool of 40 questions.
 
     Each question has exactly 6 options. Option index maps to a flower:
       0=Lalea, 1=Bujor, 2=Trandafir, 3=Margareta, 4=Floarea-soarelui, 5=Floare albastră
 
-    Uses randomized theme categories and creative angles each time to ensure
-    every quiz session feels completely different.
+    Questions are randomly selected without repeats.
     """
-    client = get_azure_openai_client()
-    if client is None:
-        return {"questions": FALLBACK_QUESTIONS, "source": "fallback"}
-
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.2-chat")
-
-    # ── Randomized topic pools for maximum variety ──
-    THEME_POOLS = [
-        # Daily life
-        ["dimineața ta ideală", "rutina de seară", "un ritual zilnic preferat",
-         "prima oră de la trezire", "cum arată pauza ta de prânz"],
-        # Relationships
-        ["cum arăți afecțiune", "ce faci pentru o prietenă tristă",
-         "un cadou de suflet", "cum construiești o prietenie nouă",
-         "cum reacționezi la un compliment neașteptat"],
-        # Creativity / hobbies
-        ["un weekend liber", "hobby-ul tău secret", "o activitate care te relaxează",
-         "un proiect creativ de vis", "cum petreci o seară de ploaie"],
-        # Challenges
-        ["cum gestionezi un conflict", "o decizie dificilă",
-         "o zi proastă la muncă", "un eșec pe care l-ai depășit",
-         "când cineva te dezamăgește"],
-        # Atmosphere / aesthetics
-        ["camera ta ideală", "o destinație de vacanță",
-         "cel mai frumos anotimp", "un parfum care te reprezintă",
-         "culorile care te definesc"],
-        # Values / inner world
-        ["ce calitate prețuiești la tine", "o lecție de viață importantă",
-         "ce vrei să transmiți lumii", "cum arată succesul pentru tine",
-         "ce înseamnă curajul în viața ta"],
-        # Social / fun
-        ["rolul tău într-un grup", "cum organizezi o petrecere",
-         "tipul de conversație care te energizează",
-         "cum reacționezi la o surpriză", "primul lucru pe care-l spui la o întâlnire nouă"],
-        # Imagination
-        ["dacă ai fi un element al naturii", "un supraputere pe care ai alege-o",
-         "un personaj din carte care te reprezintă",
-         "o epocă istorică în care ai fi vrut să trăiești",
-         "dacă ai putea avea o conversație cu oricine"],
-    ]
-
-    # Pick 7 random categories (can repeat if needed) and one topic from each
-    chosen_categories = random.sample(THEME_POOLS, k=min(7, len(THEME_POOLS)))
-    while len(chosen_categories) < 7:
-        chosen_categories.append(random.choice(THEME_POOLS))
-    chosen_topics = [random.choice(cat) for cat in chosen_categories]
-    random.shuffle(chosen_topics)
-
-    topics_line = "\n".join(f"  {i+1}. {t}" for i, t in enumerate(chosen_topics))
-
-    # Pick a random creative angle
-    angles = [
-        "Formulează întrebările ca scenarii imaginare (ex: 'Dacă...', 'Imaginează-ți că...')",
-        "Formulează întrebările ca alegeri practice de zi cu zi",
-        "Formulează întrebările ca preferințe estetice și senzoriale",
-        "Formulează întrebările ca reacții spontane la situații neașteptate",
-        "Formulează întrebările ca metafore ușoare din natură sau artă",
-        "Formulează întrebările ca mini-dileme amuzante și sincere",
-    ]
-    angle = random.choice(angles)
-
-    system_prompt = (
-        "Ești un creator de quiz-uri de personalitate unice, proaspete și surprinzătoare, "
-        "în limba română, pentru femei. Fiecare quiz pe care-l creezi trebuie să fie COMPLET "
-        "DIFERIT de orice ai generat înainte. Fii creativ, neașteptat, dar accesibil. "
-        "Răspunsurile sunt scurte (max 10 cuvinte), clare, fără jargon sau clișee."
-    )
-
-    user_prompt = f"""Generează EXACT 7 întrebări UNICE pentru un quiz de personalitate.
-
-IMPORTANT: Fiecare întrebare trebuie să fie pe un SUBIECT DIFERIT. Iată temele obligatorii:
-{topics_line}
-
-Stil creativ obligatoriu: {angle}
-
-Fiecare întrebare are EXACT 6 variante de răspuns. Ordinea variantelor contează:
-- Varianta 1: personalitate Lalea (eleganță, echilibru, rafinament, discretă)
-- Varianta 2: personalitate Bujor (căldură, generozitate, empatie, grijă)  
-- Varianta 3: personalitate Trandafir (forță, pasiune, determinare, curaj)
-- Varianta 4: personalitate Margaretă (simplitate, sinceritate, bucurie, autentică)
-- Varianta 5: personalitate Floarea-soarelui (optimism, curaj, energie, entuziasm)
-- Varianta 6: personalitate Floare albastră (profunzime, sensibilitate, introspecție, creativitate)
-
-Format JSON STRICT (fără alt text înainte sau după):
-[
-  {{
-    "text": "Întrebarea aici?",
-    "options": ["Lalea", "Bujor", "Trandafir", "Margaretă", "Floarea-soarelui", "Floare albastră"]
-  }}
-]
-
-Reguli:
-- Exact 7 obiecte
-- Exact 6 stringuri în fiecare "options"  
-- Fiecare răspuns max 10 cuvinte
-- NU repeta nicio formulare clasică (ex: "cum începi dimineața")
-- Fii SURPRINZĂTOR și ORIGINAL
-- Răspunde DOAR cu JSON valid"""
-
-    try:
-        response = client.chat.completions.create(
-            model=deployment,
-            temperature=1.0,
-            max_completion_tokens=1800,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        raw = (response.choices[0].message.content or "").strip()
-
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[-1]  # remove first line
-            if raw.endswith("```"):
-                raw = raw[:-3].strip()
-
-        questions = json.loads(raw)
-
-        # Validate structure
-        if (
-            not isinstance(questions, list)
-            or len(questions) != 7
-            or not all(
-                isinstance(q, dict)
-                and isinstance(q.get("text"), str)
-                and isinstance(q.get("options"), list)
-                and len(q["options"]) == 6
-                and all(isinstance(o, str) for o in q["options"])
-                for q in questions
-            )
-        ):
-            return {"questions": FALLBACK_QUESTIONS, "source": "fallback"}
-
-        # Shuffle option order per question while preserving index→flower mapping
-        # (We DON'T shuffle — the order IS the mapping. But we shuffle question order.)
-        random.shuffle(questions)
-
-        return {"questions": questions, "source": "ai"}
-
-    except Exception as exc:
-        print(f"[QUIZ ERROR] {type(exc).__name__}: {exc}", flush=True)
-        return {"questions": FALLBACK_QUESTIONS, "source": "fallback"}
+    pool = list(ALL_QUESTIONS_POOL)
+    selected = random.sample(pool, k=min(7, len(pool)))
+    random.shuffle(selected)
+    return {"questions": selected, "source": "static"}
 
 
 @app.post("/generate-illustration")
 async def generate_illustration(
     photo: UploadFile = File(...),
+    flower: str | None = Form(None),
 ):
-    """Accept a single photo. AI detects how many people are in it, describes
-    each person, then generates a kawaii illustration via DALL-E 3.
-
-    Three-step process:
-    1. GPT vision detects the number of people and describes each one.
-    2. Build a DALL-E prompt based on the detected people.
-    3. Generate the kawaii illustration.
+    """Accept a single photo + optional flower. AI detects how many people
+    are in it, describes each person, then generates a semi-realistic
+    watercolor illustration via DALL-E 3.
     """
     client = get_azure_openai_client()
     if client is None:
@@ -360,20 +270,21 @@ async def generate_illustration(
     vision_prompt = (
         "Analizează această fotografie cu atenție.\n\n"
         "1. Câte persoane sunt în fotografie? (returnează un număr exact)\n"
-        "2. Pentru FIECARE persoană detectată, descrie detaliat:\n"
+        "2. Pentru FIECARE persoană detectată, descrie DOAR aceste trăsături vizuale:\n"
         "   - Poziția în fotografie (stânga, centru, dreapta etc.)\n"
         "   - Culoarea și lungimea părului, stilul coafurii\n"
-        "   - Forma feței, culoarea pielii\n"
-        "   - Ochelari (dacă are)\n"
-        "   - Îmbrăcăminte vizibilă\n"
-        "   - Orice trăsătură distinctivă vizibilă\n"
-        "   - Vârsta aproximativă\n\n"
+        "   - Ochelari (dacă are — forma: rotunzi, pătrați etc.)\n"
+        "   - Culoarea și tipul hainelor vizibile (rochie, bluză, etc.)\n"
+        "   - Accesorii vizibile (cercei, colier, bentiță etc.)\n\n"
+        "IMPORTANT: Descrie DOAR haine, păr, ochelari și accesorii.\n"
+        "NU descrie trăsături faciale, vârstă, tonul pielii sau etnie.\n"
+        "Scopul este să creezi un personaj de desen animat stilizat pe baza ținutei și stilului.\n\n"
         "Răspunde STRICT în acest format JSON (fără alt text):\n"
         '{\n'
         '  "people_count": <număr>,\n'
         '  "descriptions": [\n'
-        '    {"position": "...", "appearance": "descriere detaliată persoana 1"},\n'
-        '    {"position": "...", "appearance": "descriere detaliată persoana 2"}\n'
+        '    {"position": "...", "appearance": "descriere stilistică persoana 1"},\n'
+        '    {"position": "...", "appearance": "descriere stilistică persoana 2"}\n'
         '  ]\n'
         '}\n\n'
         "Dacă nu este nicio persoană în fotografie, returnează people_count: 0 și descriptions: []."
@@ -434,32 +345,44 @@ async def generate_illustration(
         descriptions = [{"position": "centru", "appearance": vision_raw}]
 
     # Build a human-readable description block for DALL-E
+    FLOWER_TO_DALLE = {
+        "lalea": "tulips",
+        "bujor": "peonies",
+        "trandafir": "roses",
+        "margareta": "daisies",
+        "floarea_soarelui": "sunflowers",
+        "floare_albastra": "blue cornflowers",
+    }
+    flowers_pool = ["tulips", "peonies", "roses", "daisies", "sunflowers", "blue cornflowers"]
+    selected_flower_en = FLOWER_TO_DALLE.get(flower, "") if flower else ""
+
     desc_lines = []
-    flowers_pool = ["lalele", "bujori", "trandafiri", "margarete", "flori-soarelui", "flori albastre"]
     for i, d in enumerate(descriptions):
         appearance = d.get("appearance", "") if isinstance(d, dict) else str(d)
         position = d.get("position", "") if isinstance(d, dict) else ""
-        flower = flowers_pool[i % len(flowers_pool)]
+        flower_name = selected_flower_en if selected_flower_en else flowers_pool[i % len(flowers_pool)]
         desc_lines.append(
-            f"- Person {i + 1} ({position}): {appearance} — surrounded by {flower}"
+            f"- Character {i + 1} ({position}): outfit & style: {appearance} — surrounded by {flower_name}"
         )
 
-    people_word = "a woman" if people_count == 1 else f"{people_count} women"
+    people_word = "a character" if people_count == 1 else f"{people_count} characters"
 
-    # ── Step 2: Generate kawaii illustration with DALL-E 3 ──
+    # ── Step 2: Generate cartoon-style illustration with DALL-E 3 ──
     dalle_prompt = (
-        "Create an adorable kawaii cartoon illustration in a cute Disney/Pixar pastel style.\n\n"
-        f"The scene features EXACTLY {people_word} together in an enchanted garden full of flowers.\n\n"
-        f"AI detected {people_count} {'person' if people_count == 1 else 'people'} in the original photo.\n"
-        "Description of each person:\n"
+        "Create a charming cartoon illustration in a whimsical, stylized storybook style — "
+        "colorful, playful, with clean lines, cel-shading and a warm pastel palette.\n\n"
+        f"The scene features EXACTLY {people_word} as cute cartoon characters in a magical flower garden.\n\n"
+        "Character descriptions (outfit & style ONLY — do NOT depict any real person):\n"
         + "\n".join(desc_lines) + "\n\n"
         "Rules:\n"
-        "- IMPORTANT: Draw EXACTLY " + str(people_count) + f" {'person' if people_count == 1 else 'people'}, no more, no less\n"
-        "- Keep all distinctive features from the description (hair color, length, glasses, clothing, etc.)\n"
-        "- Each person holds or is surrounded by their assigned flowers\n"
-        "- Style: cute, kawaii, soft pastels, warm, friendly\n"
-        "- Background: enchanted garden with flowers and soft light\n"
-        "- All people together in one scene, matching their original positions\n"
+        "- IMPORTANT: Draw EXACTLY " + str(people_count) + f" cartoon {'character' if people_count == 1 else 'characters'}, no more, no less\n"
+        "- This is a FICTIONAL cartoon, NOT a portrait of any real person\n"
+        "- Style: cute cartoon / anime-inspired, big expressive eyes, simplified features\n"
+        "- Match hair style, hair color, glasses and clothing colors from the description\n"
+        "- Each character holds or is surrounded by their assigned flowers\n"
+        "- Background: magical storybook garden with flowers, butterflies and soft light\n"
+        "- All characters together in one scene, matching their described positions\n"
+        "- Warm pastel tones, playful and cheerful mood\n"
         "- NO text overlays on the image."
     )
 
@@ -468,7 +391,7 @@ async def generate_illustration(
             model=dalle_deployment,
             prompt=dalle_prompt,
             size="1024x1024",
-            quality="hd",
+            quality="standard",
             n=1,
             response_format="b64_json",
         )

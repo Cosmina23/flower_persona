@@ -65,7 +65,7 @@ export default function App() {
         <div className="start-screen__content">
           <h1>Quiz de personalitate: ce floare ești?</h1>
           <p className="start-text">
-            AI-ul creează întrebări unice, doar pentru tine…
+            Se pregătesc întrebările pentru tine…
           </p>
           <div className="loading-flowers">
             <span className="loading-flower" style={{ animationDelay: "0s" }}>🌷</span>
@@ -76,7 +76,7 @@ export default function App() {
             <span className="loading-flower" style={{ animationDelay: "1.0s" }}>💐</span>
           </div>
           <p className="loading-hint">
-            Fiecare quiz este diferit — întrebările se generează acum!
+            7 întrebări unice, alese aleatoriu din colecție!
           </p>
         </div>
       </section>

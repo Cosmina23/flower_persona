@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { generateIllustration } from "../services/api";
+import { FLOWERS, FLOWER_LABELS, type FlowerKey } from "../data/questions";
 
 interface PhotoStudioProps {
   onClose: () => void;
@@ -12,6 +13,7 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
   const [generatedImage, setGeneratedImage] = useState("");
   const [peopleCount, setPeopleCount] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [selectedFlower, setSelectedFlower] = useState<FlowerKey | "">(""); 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   /* ── camera state ── */
@@ -78,6 +80,9 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    // Mirror horizontally to match the viewfinder
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0);
 
     canvas.toBlob(
@@ -122,7 +127,10 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
     setPeopleCount(null);
 
     try {
-      const res = await generateIllustration(photoFile);
+      const res = await generateIllustration(
+        photoFile,
+        selectedFlower || undefined
+      );
       setGeneratedImage(res.image);
       if (res.people_count) {
         setPeopleCount(res.people_count);
@@ -134,7 +142,7 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
     } finally {
       setGenerating(false);
     }
-  }, [photoFile]);
+  }, [photoFile, selectedFlower]);
 
   /* ── download image ── */
   const download = useCallback(() => {
@@ -225,6 +233,24 @@ export default function PhotoStudio({ onClose }: PhotoStudioProps) {
 
           {/* ── error ── */}
           {error && <p className="error">{error}</p>}
+
+          {/* ── flower dropdown ── */}
+          <div className="studio-flower-select">
+            <label htmlFor="flower-select">🌸 Alege floarea pentru ilustrație:</label>
+            <select
+              id="flower-select"
+              className="flower-dropdown"
+              value={selectedFlower}
+              onChange={(e) => setSelectedFlower(e.target.value as FlowerKey | "")}
+            >
+              <option value="">— Alege automat (câte o floare diferită) —</option>
+              {FLOWERS.map((f) => (
+                <option key={f} value={f}>
+                  {FLOWER_LABELS[f]}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {/* ── actions ── */}
           <div className="actions" style={{ marginTop: 18 }}>

@@ -4,3 +4,5 @@ public/
 api/
 server.js
 *.md
+!quiz-questions-40.md
+!backend/Question.md

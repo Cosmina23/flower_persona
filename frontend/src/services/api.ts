@@ -7,6 +7,16 @@ function getApiBase(): string {
   return import.meta.env.VITE_API_URL || "/api";
 }
 
+/** Pick 7 random unique questions from an array (Fisher-Yates shuffle) */
+function pickRandom7(pool: Question[]): Question[] {
+  const copy = [...pool];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, 7);
+}
+
 export function getLocalFallback(flower: FlowerKey): string {
   return FALLBACK_TEXT[flower] ?? DEFAULT_FALLBACK;
 }
@@ -18,7 +28,7 @@ export async function fetchQuizQuestions(): Promise<Question[]> {
     const data = await res.json();
     if (
       Array.isArray(data?.questions) &&
-      data.questions.length === 7 &&
+      data.questions.length >= 7 &&
       data.questions.every(
         (q: unknown) =>
           typeof q === "object" &&
@@ -28,19 +38,24 @@ export async function fetchQuizQuestions(): Promise<Question[]> {
           ((q as Record<string, unknown>).options as unknown[]).length === 6
       )
     ) {
-      return data.questions as Question[];
+      const qs = data.questions as Question[];
+      return qs.slice(0, 7);
     }
-    return FALLBACK_QUESTIONS;
+    return pickRandom7(FALLBACK_QUESTIONS);
   } catch {
-    return FALLBACK_QUESTIONS;
+    return pickRandom7(FALLBACK_QUESTIONS);
   }
 }
 
 export async function generateIllustration(
-  photo: File
+  photo: File,
+  flower?: string
 ): Promise<{ image: string; people_count?: number; descriptions?: unknown[] }> {
   const formData = new FormData();
   formData.append("photo", photo);
+  if (flower) {
+    formData.append("flower", flower);
+  }
 
   const res = await fetch(`${getApiBase()}/generate-illustration`, {
     method: "POST",

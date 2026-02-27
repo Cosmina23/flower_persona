@@ -60,9 +60,19 @@ function buildTraits(
   return derived.slice(0, 6);
 }
 
+/** Pick 7 random unique questions from an array */
+function pickRandom7(pool: Question[]): Question[] {
+  const copy = [...pool];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, 7);
+}
+
 export function useQuiz() {
   const [screen, setScreen] = useState<Screen>("start");
-  const [questions, setQuestions] = useState<Question[]>(FALLBACK_QUESTIONS);
+  const [questions, setQuestions] = useState<Question[]>(() => pickRandom7(FALLBACK_QUESTIONS));
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<(number | null)[]>(
     Array(7).fill(null)
@@ -155,7 +165,7 @@ export function useQuiz() {
   const reset = useCallback(() => {
     setAnswers(Array(7).fill(null));
     setQuestionIndex(0);
-    setQuestions(FALLBACK_QUESTIONS);
+    setQuestions(pickRandom7(FALLBACK_QUESTIONS));
     setResult(null);
     setError("");
     setScreen("start");
